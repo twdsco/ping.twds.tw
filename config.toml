@@ -52,9 +52,48 @@ ip = "44.30.18.11"
 name = "u-sky"
 ip = "44.30.18.12"
 
-# Shared destinations - MTR runs continuously to these
+# Shared destinations - MTR runs continuously to these (sorted)
 [[destinations]]
 host = "1.1.1.1"
 
 [[destinations]]
 host = "8.8.8.8"
+
+[[destinations]]
+host = "9.9.9.9"
+
+[[destinations]]
+host = "101.101.101.101"
+
+[[destinations]]
+host = "raw.githubusercontent.com"
+
+[[destinations]]
+host = "www.apple.com"
+
+[[destinations]]
+host = "www.cloudflare.com"
+
+[[destinations]]
+host = "www.facebook.com"
+
+[[destinations]]
+host = "www.gamer.com.tw"
+
+[[destinations]]
+host = "www.github.com"
+
+[[destinations]]
+host = "www.google.com"
+
+[[destinations]]
+host = "www.microsoft.com"
+
+[[destinations]]
+host = "www.netflix.com"
+
+[[destinations]]
+host = "www.twitter.com"
+
+[[destinations]]
+host = "www.youtube.com"

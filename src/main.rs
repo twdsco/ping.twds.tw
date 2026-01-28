@@ -378,7 +378,21 @@ async fn main() {
 
     // Start shared MTR tasks
     for dest in &config.destinations {
-        let dest_ip: IpAddr = dest.host.parse().expect("Invalid destination IP");
+        let dest_ip: IpAddr = match dest.host.parse().or_else(|_| {
+            use std::net::ToSocketAddrs;
+            format!("{}:0", dest.host)
+                .to_socket_addrs()
+                .ok()
+                .and_then(|mut addrs| addrs.next())
+                .map(|s| s.ip())
+                .ok_or(())
+        }) {
+            Ok(ip) => ip,
+            Err(_) => {
+                eprintln!("Failed to resolve destination: {}", dest.host);
+                continue;
+            }
+        };
         for source in &config.sources {
             let source = source.clone();
             let dest_str = dest.host.clone();
