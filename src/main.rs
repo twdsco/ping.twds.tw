@@ -31,8 +31,6 @@ struct Config {
     custom_duration_secs: u64,
     sources: Vec<Source>,
     destinations: Vec<Destination>,
-    #[serde(default)]
-    interface: Option<String>,
     #[serde(default = "default_max_custom_per_user")]
     max_custom_per_user: usize,
     #[serde(default = "default_max_custom_global")]
@@ -96,14 +94,27 @@ struct AppState {
     config: Config,
     shared_results: Arc<RwLock<HashMap<String, Vec<MtrResult>>>>,
     broadcast_tx: broadcast::Sender<ServerMsg>,
-    interface: Option<String>,
     global_custom_count: Arc<AtomicUsize>,
 }
 
 // ============ MTR Functions ============
 
+fn get_interface_for_ip(ip: &IpAddr) -> Option<String> {
+    use std::process::Command;
+    let output = Command::new("ip")
+        .args(["-o", "addr", "show"])
+        .output()
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if line.contains(&ip.to_string()) {
+            return line.split_whitespace().nth(1).map(|s| s.to_string());
+        }
+    }
+    None
+}
+
 fn resolve_ptr(addr: &IpAddr) -> String {
-    use std::net::ToSocketAddrs;
     dns_lookup::lookup_addr(addr).unwrap_or_default()
 }
 
@@ -148,10 +159,10 @@ async fn run_mtr(
     source: Source,
     dest: IpAddr,
     dest_str: String,
-    interface: Option<String>,
     results: Arc<RwLock<HashMap<String, Vec<MtrResult>>>>,
     broadcast_tx: broadcast::Sender<ServerMsg>,
 ) {
+    let interface = get_interface_for_ip(&source.ip);
     let mut builder = Builder::new(dest)
         .source_addr(Some(source.ip))
         .trace_identifier(TRACE_ID.fetch_add(1, Ordering::Relaxed));
@@ -207,7 +218,6 @@ async fn run_custom_mtr(
     sources: Vec<Source>,
     dest: String,
     duration_secs: u64,
-    interface: Option<String>,
     tx: mpsc::Sender<ServerMsg>,
 ) {
     let dest_ip: IpAddr = match dest.parse().or_else(|_| {
@@ -232,6 +242,7 @@ async fn run_custom_mtr(
     let mut tracers: Vec<(String, Tracer)> = vec![];
     
     for source in &sources {
+        let interface = get_interface_for_ip(&source.ip);
         let mut builder = Builder::new(dest_ip)
             .source_addr(Some(source.ip))
             .trace_identifier(TRACE_ID.fetch_add(1, Ordering::Relaxed));
@@ -308,7 +319,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
     let sources = state.config.sources.clone();
     let duration = state.config.custom_duration_secs;
-    let interface = state.interface.clone();
     let max_per_user = state.config.max_custom_per_user;
     let max_global = state.config.max_custom_global;
     let global_count = state.global_custom_count.clone();
@@ -329,10 +339,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         global_count.fetch_add(1, Ordering::Relaxed);
                         let tx = custom_tx.clone();
                         let srcs = sources.clone();
-                        let iface = interface.clone();
                         let gc = global_count.clone();
                         tokio::spawn(async move {
-                            run_custom_mtr(srcs, dest, duration, iface, tx).await;
+                            run_custom_mtr(srcs, dest, duration, tx).await;
                             gc.fetch_sub(1, Ordering::Relaxed);
                         });
                     }
@@ -363,11 +372,9 @@ async fn main() {
     println!("  Sources: {:?}", config.sources.iter().map(|s| (&s.name, &s.ip)).collect::<Vec<_>>());
     println!("  Destinations: {:?}", config.destinations.iter().map(|d| &d.host).collect::<Vec<_>>());
     println!("  Custom duration: {}s", config.custom_duration_secs);
-    println!("  Interface: {:?}", config.interface);
 
     let (broadcast_tx, _) = broadcast::channel::<ServerMsg>(100);
     let shared_results = Arc::new(RwLock::new(HashMap::new()));
-    let interface = config.interface.clone();
 
     // Start shared MTR tasks
     for dest in &config.destinations {
@@ -375,10 +382,9 @@ async fn main() {
         for source in &config.sources {
             let source = source.clone();
             let dest_str = dest.host.clone();
-            let iface = interface.clone();
             let results = shared_results.clone();
             let tx = broadcast_tx.clone();
-            tokio::spawn(run_mtr(source, dest_ip, dest_str, iface, results, tx));
+            tokio::spawn(run_mtr(source, dest_ip, dest_str, results, tx));
         }
     }
 
@@ -386,7 +392,6 @@ async fn main() {
         config,
         shared_results,
         broadcast_tx,
-        interface,
         global_custom_count: Arc::new(AtomicUsize::new(0)),
     });
 

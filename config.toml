@@ -3,9 +3,6 @@
 # Duration in seconds for custom (user-added) MTR tasks
 custom_duration_secs = 60
 
-# Interface to bind for sending packets
-interface = "ens19"
-
 # Source endpoints - MTR will be sent FROM these IPs
 [[sources]]
 name = "d-ixfirst"
