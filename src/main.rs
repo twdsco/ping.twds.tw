@@ -164,7 +164,8 @@ async fn run_mtr(
     let interface = get_interface_for_ip(&source.ip);
     let mut builder = Builder::new(dest)
         .source_addr(Some(source.ip))
-        .trace_identifier(TRACE_ID.fetch_add(1, Ordering::Relaxed));
+        .trace_identifier(TRACE_ID.fetch_add(1, Ordering::Relaxed))
+        .max_samples(10); // 10s rolling average
     
     if let Some(ref iface) = interface {
         builder = builder.interface(Some(iface.clone()));
@@ -236,7 +237,8 @@ async fn run_custom_mtr(
         let interface = get_interface_for_ip(&source.ip);
         let mut builder = Builder::new(dest_ip)
             .source_addr(Some(source.ip))
-            .trace_identifier(TRACE_ID.fetch_add(1, Ordering::Relaxed));
+            .trace_identifier(TRACE_ID.fetch_add(1, Ordering::Relaxed))
+            .max_samples(10); // 10s rolling average
         
         if let Some(ref iface) = interface {
             builder = builder.interface(Some(iface.clone()));
