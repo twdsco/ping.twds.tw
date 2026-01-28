@@ -87,10 +87,10 @@ host = "www.github.com"
 host = "www.google.com"
 
 [[destinations]]
-host = "www.microsoft.com"
+host = "www.hinet.net"
 
 [[destinations]]
-host = "www.netflix.com"
+host = "www.microsoft.com"
 
 [[destinations]]
 host = "www.twitter.com"
