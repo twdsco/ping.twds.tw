@@ -22,7 +22,14 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use tower_http::services::ServeDir;
 use trippy_core::{Builder, State as TracerState, Tracer};
 
-static TRACE_ID: AtomicU16 = AtomicU16::new(1);
+static TRACE_ID: AtomicU16 = AtomicU16::new(0);
+static SEQ_OFFSET: AtomicU16 = AtomicU16::new(0);
+
+fn next_tracer_ids() -> (u16, u16) {
+    let id = TRACE_ID.fetch_add(1, Ordering::Relaxed);
+    let seq = SEQ_OFFSET.fetch_add(256, Ordering::Relaxed); // spread sequences apart
+    (id, seq)
+}
 
 // ============ Config ============
 
@@ -162,10 +169,12 @@ async fn run_mtr(
     results: Arc<RwLock<HashMap<String, Vec<MtrResult>>>>,
 ) {
     let interface = get_interface_for_ip(&source.ip);
+    let (trace_id, initial_seq) = next_tracer_ids();
     let mut builder = Builder::new(dest)
         .source_addr(Some(source.ip))
-        .trace_identifier(TRACE_ID.fetch_add(1, Ordering::Relaxed))
-        .max_samples(10); // 10s rolling average
+        .trace_identifier(trace_id)
+        .initial_sequence(initial_seq)
+        .max_samples(10);
     
     if let Some(ref iface) = interface {
         builder = builder.interface(Some(iface.clone()));
@@ -235,10 +244,12 @@ async fn run_custom_mtr(
     
     for source in &sources {
         let interface = get_interface_for_ip(&source.ip);
+        let (trace_id, initial_seq) = next_tracer_ids();
         let mut builder = Builder::new(dest_ip)
             .source_addr(Some(source.ip))
-            .trace_identifier(TRACE_ID.fetch_add(1, Ordering::Relaxed))
-            .max_samples(10); // 10s rolling average
+            .trace_identifier(trace_id)
+            .initial_sequence(initial_seq)
+            .max_samples(10);
         
         if let Some(ref iface) = interface {
             builder = builder.interface(Some(iface.clone()));
