@@ -2,6 +2,8 @@
 
 Real-time MTR (traceroute) monitoring from multiple source IPs to multiple destinations, displayed in a web-based matrix view.
 
+<img width="1496" height="730" alt="截圖 2026-01-28 18 35 01" src="https://github.com/user-attachments/assets/0d1e556e-e518-4287-af10-4bd2b0b7291c" />
+
 ## Features
 
 - **Multi-source MTR**: Run MTR from multiple source IPs simultaneously
