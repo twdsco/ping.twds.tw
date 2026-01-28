@@ -1,0 +1,15 @@
+[package]
+name = "mtr-matrix"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.7", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["fs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+trippy-core = "0.13"
+dns-lookup = "2"
+futures = "0.3"

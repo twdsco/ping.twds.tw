@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MTR Matrix</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, sans-serif; padding: 20px; background: #1a1a2e; color: #eee; }
+        h1 { margin-bottom: 20px; }
+        .add-form { margin-bottom: 20px; display: flex; gap: 10px; }
+        .add-form input { padding: 8px 12px; border: 1px solid #444; border-radius: 4px; background: #16213e; color: #eee; width: 300px; }
+        .add-form button { padding: 8px 16px; background: #0f3460; border: none; border-radius: 4px; color: #eee; cursor: pointer; }
+        .add-form button:hover { background: #1a508b; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #333; padding: 10px; text-align: center; }
+        th { background: #16213e; }
+        .section-header { background: #0f3460; font-weight: bold; }
+        .cell { position: relative; cursor: pointer; min-width: 80px; }
+        .cell.good { background: #1b4332; }
+        .cell.medium { background: #5c4d1a; }
+        .cell.bad { background: #5c1a1a; }
+        .cell.na { background: #333; color: #888; }
+        .badge { font-size: 10px; background: #0f3460; padding: 2px 6px; border-radius: 10px; margin-left: 5px; }
+        .badge.done { background: #1b4332; }
+        .tooltip { display: none; position: absolute; background: #16213e; border: 1px solid #444; padding: 10px; border-radius: 4px; z-index: 100; left: 50%; transform: translateX(-50%); top: 100%; min-width: 450px; text-align: left; font-size: 12px; }
+        .cell:hover .tooltip { display: block; }
+        .tooltip table { font-size: 11px; }
+        .tooltip th, .tooltip td { padding: 3px 6px; }
+    </style>
+</head>
+<body>
+    <h1>MTR Matrix</h1>
+    <div class="add-form">
+        <input type="text" id="destInput" placeholder="Enter destination (IP or hostname)">
+        <button onclick="addDestination()">Add Destination</button>
+    </div>
+    <table id="matrix">
+        <thead><tr id="headerRow"><th>Destination</th></tr></thead>
+        <tbody id="sharedBody"></tbody>
+        <tbody id="customBody"></tbody>
+    </table>
+
+    <script>
+        let sources = [];
+        let sharedData = {};
+        let customData = {};
+        let ws;
+
+        function connect() {
+            ws = new WebSocket(`ws://${location.host}/ws`);
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                if (msg.type === 'config') {
+                    sources = msg.sources;
+                    renderHeader();
+                } else if (msg.type === 'shared_update') {
+                    sharedData[msg.dest] = { results: msg.results };
+                    renderShared();
+                } else if (msg.type === 'custom_update') {
+                    customData[msg.dest] = { results: msg.results, remaining: msg.remaining_secs, done: false };
+                    renderCustom();
+                } else if (msg.type === 'custom_complete') {
+                    customData[msg.dest] = { results: msg.results, remaining: 0, done: true };
+                    renderCustom();
+                }
+            };
+            ws.onclose = () => setTimeout(connect, 2000);
+        }
+
+        function renderHeader() {
+            const row = document.getElementById('headerRow');
+            row.innerHTML = '<th>Destination</th>' + sources.map(s => `<th>${s}</th>`).join('');
+        }
+
+        function getLatencyClass(ms) {
+            if (ms === null || ms === undefined) return 'na';
+            if (ms < 50) return 'good';
+            if (ms < 150) return 'medium';
+            return 'bad';
+        }
+
+        function formatMs(ms) {
+            if (ms === null || ms === undefined) return 'N/A';
+            return ms.toFixed(1) + 'ms';
+        }
+
+        function renderTooltip(hops) {
+            if (!hops || hops.length === 0) return '<div class="tooltip">No data</div>';
+            return `<div class="tooltip">
+                <table>
+                    <tr><th>TTL</th><th>Host</th><th>PTR</th><th>Avg</th><th>Best</th><th>Worst</th><th>Loss</th></tr>
+                    ${hops.map(h => `<tr>
+                        <td>${h.ttl}</td>
+                        <td>${h.addr || '*'}</td>
+                        <td>${h.ptr || ''}</td>
+                        <td>${h.avg_ms?.toFixed(1) || '-'}ms</td>
+                        <td>${h.best_ms?.toFixed(1) || '-'}ms</td>
+                        <td>${h.worst_ms?.toFixed(1) || '-'}ms</td>
+                        <td>${h.loss_pct?.toFixed(1) || '0'}%</td>
+                    </tr>`).join('')}
+                </table>
+            </div>`;
+        }
+
+        function renderRow(dest, data, badge = '') {
+            const resultMap = {};
+            (data.results || []).forEach(r => resultMap[r.source] = r);
+            
+            return `<tr>
+                <td>${dest}${badge}</td>
+                ${sources.map(s => {
+                    const r = resultMap[s] || {};
+                    const cls = getLatencyClass(r.avg_ms);
+                    return `<td class="cell ${cls}">${formatMs(r.avg_ms)}${renderTooltip(r.hops)}</td>`;
+                }).join('')}
+            </tr>`;
+        }
+
+        function renderShared() {
+            const body = document.getElementById('sharedBody');
+            const rows = Object.entries(sharedData).map(([dest, data]) => renderRow(dest, data));
+            body.innerHTML = rows.length ? `<tr><td colspan="${sources.length + 1}" class="section-header">Shared Destinations</td></tr>` + rows.join('') : '';
+        }
+
+        function renderCustom() {
+            const body = document.getElementById('customBody');
+            const rows = Object.entries(customData).map(([dest, data]) => {
+                const badge = data.done 
+                    ? '<span class="badge done">completed</span>' 
+                    : `<span class="badge">${data.remaining}s</span>`;
+                return renderRow(dest, data, badge);
+            });
+            body.innerHTML = rows.length ? `<tr><td colspan="${sources.length + 1}" class="section-header">Custom Destinations</td></tr>` + rows.join('') : '';
+        }
+
+        function addDestination() {
+            const input = document.getElementById('destInput');
+            const dest = input.value.trim();
+            if (dest && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'add_destination', dest }));
+                input.value = '';
+            }
+        }
+
+        document.getElementById('destInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addDestination();
+        });
+
+        connect();
+    </script>
+</body>
+</html>
