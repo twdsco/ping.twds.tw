@@ -55,7 +55,10 @@
                     sources = msg.sources;
                     renderHeader();
                 } else if (msg.type === 'shared_update') {
-                    sharedData[msg.dest] = { results: msg.results };
+                    // Batched update: msg.data is { dest: results[] }
+                    for (const [dest, results] of Object.entries(msg.data)) {
+                        sharedData[dest] = { results };
+                    }
                     renderShared();
                 } else if (msg.type === 'custom_update') {
                     customData[msg.dest] = { results: msg.results, remaining: msg.remaining_secs, done: false };

@@ -57,7 +57,7 @@ struct Destination {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ServerMsg {
     Config { sources: Vec<String> },
-    SharedUpdate { dest: String, results: Vec<MtrResult> },
+    SharedUpdate { data: HashMap<String, Vec<MtrResult>> },
     CustomUpdate { dest: String, remaining_secs: u64, results: Vec<MtrResult> },
     CustomComplete { dest: String, results: Vec<MtrResult> },
 }
@@ -160,7 +160,6 @@ async fn run_mtr(
     dest: IpAddr,
     dest_str: String,
     results: Arc<RwLock<HashMap<String, Vec<MtrResult>>>>,
-    broadcast_tx: broadcast::Sender<ServerMsg>,
 ) {
     let interface = get_interface_for_ip(&source.ip);
     let mut builder = Builder::new(dest)
@@ -196,21 +195,13 @@ async fn run_mtr(
         let state = tracer.snapshot();
         let result = extract_results(&state, &source_name, dest);
         
-        {
-            let mut map = results.write().await;
-            let entry = map.entry(dest_key.clone()).or_insert_with(Vec::new);
-            if let Some(existing) = entry.iter_mut().find(|r| r.source == source_name) {
-                *existing = result.clone();
-            } else {
-                entry.push(result.clone());
-            }
+        let mut map = results.write().await;
+        let entry = map.entry(dest_key.clone()).or_insert_with(Vec::new);
+        if let Some(existing) = entry.iter_mut().find(|r| r.source == source_name) {
+            *existing = result;
+        } else {
+            entry.push(result);
         }
-
-        let results_vec = results.read().await.get(&dest_key).cloned().unwrap_or_default();
-        let _ = broadcast_tx.send(ServerMsg::SharedUpdate {
-            dest: dest_key.clone(),
-            results: results_vec,
-        });
     }
 }
 
@@ -309,13 +300,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let _ = sender.send(Message::Text(serde_json::to_string(&config_msg).unwrap().into())).await;
 
     // Send current shared results
-    for (dest, results) in state.shared_results.read().await.iter() {
-        let msg = ServerMsg::SharedUpdate {
-            dest: dest.clone(),
-            results: results.clone(),
-        };
-        let _ = sender.send(Message::Text(serde_json::to_string(&msg).unwrap().into())).await;
-    }
+    let data = state.shared_results.read().await.clone();
+    let msg = ServerMsg::SharedUpdate { data };
+    let _ = sender.send(Message::Text(serde_json::to_string(&msg).unwrap().into())).await;
 
     let sources = state.config.sources.clone();
     let duration = state.config.custom_duration_secs;
@@ -397,10 +384,20 @@ async fn main() {
             let source = source.clone();
             let dest_str = dest.host.clone();
             let results = shared_results.clone();
-            let tx = broadcast_tx.clone();
-            tokio::spawn(run_mtr(source, dest_ip, dest_str, results, tx));
+            tokio::spawn(run_mtr(source, dest_ip, dest_str, results));
         }
     }
+
+    // Broadcast shared results once per second
+    let broadcast_results = shared_results.clone();
+    let broadcast_tx_clone = broadcast_tx.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let data = broadcast_results.read().await.clone();
+            let _ = broadcast_tx_clone.send(ServerMsg::SharedUpdate { data });
+        }
+    });
 
     let state = Arc::new(AppState {
         config,
