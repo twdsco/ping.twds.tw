@@ -20,15 +20,12 @@ use std::{
 };
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tower_http::services::ServeDir;
-use trippy_core::{Builder, Port, PortDirection, Protocol, State as TracerState, Tracer};
+use trippy_core::{Builder, MultipathStrategy, State as TracerState, Tracer};
 
 static TRACE_ID: AtomicU16 = AtomicU16::new(0);
-static PORT_OFFSET: AtomicU16 = AtomicU16::new(33434);
 
-fn next_tracer_config() -> (u16, u16) {
-    let id = TRACE_ID.fetch_add(1, Ordering::Relaxed);
-    let port = PORT_OFFSET.fetch_add(100, Ordering::Relaxed);
-    (id, port)
+fn next_trace_id() -> u16 {
+    TRACE_ID.fetch_add(1, Ordering::Relaxed)
 }
 
 // ============ Config ============
@@ -169,12 +166,11 @@ async fn run_mtr(
     results: Arc<RwLock<HashMap<String, Vec<MtrResult>>>>,
 ) {
     let interface = get_interface_for_ip(&source.ip);
-    let (trace_id, src_port) = next_tracer_config();
+    let trace_id = next_trace_id();
     let mut builder = Builder::new(dest)
         .source_addr(Some(source.ip))
         .trace_identifier(trace_id)
-        .protocol(Protocol::Udp)
-        .port_direction(PortDirection::FixedSrc(Port(src_port)))
+        .multipath_strategy(MultipathStrategy::Paris)
         .max_samples(10);
     
     if let Some(ref iface) = interface {
@@ -245,12 +241,11 @@ async fn run_custom_mtr(
     
     for source in &sources {
         let interface = get_interface_for_ip(&source.ip);
-        let (trace_id, src_port) = next_tracer_config();
+        let trace_id = next_trace_id();
         let mut builder = Builder::new(dest_ip)
             .source_addr(Some(source.ip))
             .trace_identifier(trace_id)
-            .protocol(Protocol::Udp)
-            .port_direction(PortDirection::FixedSrc(Port(src_port)))
+            .multipath_strategy(MultipathStrategy::Paris)
             .max_samples(10);
         
         if let Some(ref iface) = interface {
