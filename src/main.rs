@@ -63,7 +63,7 @@ struct Destination {
 #[derive(Serialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ServerMsg {
-    Config { sources: Vec<String> },
+    Config { sources: Vec<String>, destinations: Vec<String> },
     SharedUpdate { data: HashMap<String, Vec<MtrResult>> },
     CustomUpdate { dest: String, remaining_secs: u64, results: Vec<MtrResult> },
     CustomComplete { dest: String, results: Vec<MtrResult> },
@@ -306,9 +306,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let mut broadcast_rx = state.broadcast_tx.subscribe();
     let (custom_tx, mut custom_rx) = mpsc::channel::<ServerMsg>(100);
 
-    // Send config
+    // Send config with sources and destinations in order
     let config_msg = ServerMsg::Config {
         sources: state.config.sources.iter().map(|s| s.name.clone()).collect(),
+        destinations: state.config.destinations.iter().map(|d| d.host.clone()).collect(),
     };
     let _ = sender.send(Message::Text(serde_json::to_string(&config_msg).unwrap().into())).await;
 

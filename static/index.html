@@ -43,6 +43,7 @@
 
     <script>
         let sources = [];
+        let destinations = [];
         let sharedData = {};
         let customData = {};
         let ws;
@@ -53,6 +54,7 @@
                 const msg = JSON.parse(e.data);
                 if (msg.type === 'config') {
                     sources = msg.sources;
+                    destinations = msg.destinations;
                     renderHeader();
                 } else if (msg.type === 'shared_update') {
                     // Batched update: msg.data is { dest: results[] }
@@ -122,7 +124,10 @@
 
         function renderShared() {
             const body = document.getElementById('sharedBody');
-            const rows = Object.entries(sharedData).map(([dest, data]) => renderRow(dest, data));
+            // Render in config order
+            const rows = destinations
+                .filter(dest => sharedData[dest])
+                .map(dest => renderRow(dest, sharedData[dest]));
             body.innerHTML = rows.length ? `<tr><td colspan="${sources.length + 1}" class="section-header">Shared Destinations</td></tr>` + rows.join('') : '';
         }
 
