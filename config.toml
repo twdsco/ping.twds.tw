@@ -3,6 +3,13 @@
 # Duration in seconds for custom (user-added) MTR tasks
 custom_duration_secs = 60
 
+# Tracer startup wait in milliseconds
+tracer_startup_wait_ms = 400
+
+# HTTP listen host and port
+listen_host = "0.0.0.0"
+listen_port = 10000
+
 # Source endpoints - MTR will be sent FROM these IPs
 [[sources]]
 name = "d-ixfirst"

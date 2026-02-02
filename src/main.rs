@@ -33,6 +33,12 @@ fn next_trace_id() -> u16 {
 #[derive(Debug, Deserialize, Clone)]
 struct Config {
     custom_duration_secs: u64,
+    #[serde(default = "default_tracer_startup_wait_ms")]
+    tracer_startup_wait_ms: u64,
+    #[serde(default = "default_listen_host")]
+    listen_host: String,
+    #[serde(default = "default_listen_port")]
+    listen_port: u16,
     sources: Vec<Source>,
     destinations: Vec<Destination>,
     #[serde(default = "default_max_custom_per_user")]
@@ -43,6 +49,9 @@ struct Config {
 
 fn default_max_custom_per_user() -> usize { 10 }
 fn default_max_custom_global() -> usize { 75 }
+fn default_tracer_startup_wait_ms() -> u64 { 1000 }
+fn default_listen_host() -> String { "0.0.0.0".to_string() }
+fn default_listen_port() -> u16 { 10000 }
 
 #[derive(Debug, Deserialize, Clone)]
 struct Source {
@@ -164,6 +173,7 @@ async fn run_mtr(
     dest: IpAddr,
     dest_str: String,
     results: Arc<RwLock<HashMap<String, Vec<MtrResult>>>>,
+    tracer_wait: Duration,
 ) {
     let interface = get_interface_for_ip(&source.ip);
     let trace_id = next_trace_id();
@@ -198,7 +208,7 @@ async fn run_mtr(
     let dest_key = dest_str.clone();
 
     loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(tracer_wait).await;
         let state = tracer.snapshot();
         let result = extract_results(&state, &source_name, dest);
         
@@ -216,6 +226,7 @@ async fn run_custom_mtr(
     sources: Vec<Source>,
     dest: String,
     duration_secs: u64,
+    tracer_wait: Duration,
     tx: mpsc::Sender<ServerMsg>,
 ) {
     let dest_ip: IpAddr = match dest.parse().or_else(|_| {
@@ -267,7 +278,7 @@ async fn run_custom_mtr(
     let start = Instant::now();
 
     loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(tracer_wait).await;
         let elapsed = start.elapsed().as_secs();
         
         let results: Vec<MtrResult> = tracers
@@ -317,6 +328,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
     let sources = state.config.sources.clone();
     let duration = state.config.custom_duration_secs;
+    let tracer_wait = Duration::from_millis(state.config.tracer_startup_wait_ms);
     let max_per_user = state.config.max_custom_per_user;
     let max_global = state.config.max_custom_global;
     let global_count = state.global_custom_count.clone();
@@ -337,9 +349,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         global_count.fetch_add(1, Ordering::Relaxed);
                         let tx = custom_tx.clone();
                         let srcs = sources.clone();
+                        let tracer_wait = tracer_wait;
                         let gc = global_count.clone();
                         tokio::spawn(async move {
-                            run_custom_mtr(srcs, dest, duration, tx).await;
+                            run_custom_mtr(srcs, dest, duration, tracer_wait, tx).await;
                             gc.fetch_sub(1, Ordering::Relaxed);
                         });
                     }
@@ -370,11 +383,15 @@ async fn main() {
     println!("  Sources: {:?}", config.sources.iter().map(|s| (&s.name, &s.ip)).collect::<Vec<_>>());
     println!("  Destinations: {:?}", config.destinations.iter().map(|d| &d.host).collect::<Vec<_>>());
     println!("  Custom duration: {}s", config.custom_duration_secs);
+    println!("  Tracer wait: {}ms", config.tracer_startup_wait_ms);
+    println!("  Listen: {}:{}", config.listen_host, config.listen_port);
 
     let (broadcast_tx, _) = broadcast::channel::<ServerMsg>(100);
     let shared_results = Arc::new(RwLock::new(HashMap::new()));
 
     // Start shared MTR tasks
+    let tracer_wait = Duration::from_millis(config.tracer_startup_wait_ms);
+
     for dest in &config.destinations {
         let dest_ip: IpAddr = match dest.host.parse().or_else(|_| {
             use std::net::ToSocketAddrs;
@@ -395,7 +412,7 @@ async fn main() {
             let source = source.clone();
             let dest_str = dest.host.clone();
             let results = shared_results.clone();
-            tokio::spawn(run_mtr(source, dest_ip, dest_str, results));
+            tokio::spawn(run_mtr(source, dest_ip, dest_str, results, tracer_wait));
         }
     }
 
@@ -404,7 +421,7 @@ async fn main() {
     let broadcast_tx_clone = broadcast_tx.clone();
     tokio::spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::time::sleep(tracer_wait).await;
             let data = broadcast_results.read().await.clone();
             let _ = broadcast_tx_clone.send(ServerMsg::SharedUpdate { data });
         }
@@ -422,7 +439,9 @@ async fn main() {
         .nest_service("/", ServeDir::new("static"))
         .with_state(state);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 10000));
+    let addr: SocketAddr = format!("{}:{}", config.listen_host, config.listen_port)
+        .parse()
+        .expect("Invalid listen_host/listen_port");
     println!("Server running on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
