@@ -444,6 +444,10 @@ async fn main() {
         }
     });
 
+    let addr: SocketAddr = format!("{}:{}", config.listen_host, config.listen_port)
+        .parse()
+        .expect("Invalid listen_host/listen_port");
+
     let state = Arc::new(AppState {
         config,
         shared_results,
@@ -451,7 +455,7 @@ async fn main() {
         global_custom_count: Arc::new(AtomicUsize::new(0)),
     });
 
-    let base_path = normalize_base_path(&config.base_path);
+    let base_path = normalize_base_path(&state.config.base_path);
     let ws_path = if base_path == "/" {
         "/ws".to_string()
     } else {
@@ -468,9 +472,6 @@ async fn main() {
         .nest_service(&static_path, ServeDir::new("static"))
         .with_state(state);
 
-    let addr: SocketAddr = format!("{}:{}", config.listen_host, config.listen_port)
-        .parse()
-        .expect("Invalid listen_host/listen_port");
     println!("Server running on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
