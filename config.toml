@@ -10,6 +10,9 @@ tracer_startup_wait_ms = 400
 listen_host = "0.0.0.0"
 listen_port = 10000
 
+# Base path for routes ("/" for root)
+base_path = "/tpe"
+
 # Source endpoints - MTR will be sent FROM these IPs
 [[sources]]
 name = "d-ixfirst"

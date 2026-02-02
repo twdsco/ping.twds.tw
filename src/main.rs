@@ -39,6 +39,8 @@ struct Config {
     listen_host: String,
     #[serde(default = "default_listen_port")]
     listen_port: u16,
+    #[serde(default = "default_base_path")]
+    base_path: String,
     sources: Vec<Source>,
     destinations: Vec<Destination>,
     #[serde(default = "default_max_custom_per_user")]
@@ -52,6 +54,20 @@ fn default_max_custom_global() -> usize { 75 }
 fn default_tracer_startup_wait_ms() -> u64 { 1000 }
 fn default_listen_host() -> String { "0.0.0.0".to_string() }
 fn default_listen_port() -> u16 { 10000 }
+fn default_base_path() -> String { "/".to_string() }
+
+fn normalize_base_path(input: &str) -> String {
+    let trimmed = input.trim();
+    if trimmed.is_empty() || trimmed == "/" {
+        return "/".to_string();
+    }
+    let without_trailing = trimmed.trim_end_matches('/');
+    if without_trailing.starts_with('/') {
+        without_trailing.to_string()
+    } else {
+        format!("/{}", without_trailing)
+    }
+}
 
 #[derive(Debug, Deserialize, Clone)]
 struct Source {
@@ -385,6 +401,7 @@ async fn main() {
     println!("  Custom duration: {}s", config.custom_duration_secs);
     println!("  Tracer wait: {}ms", config.tracer_startup_wait_ms);
     println!("  Listen: {}:{}", config.listen_host, config.listen_port);
+    println!("  Base path: {}", config.base_path);
 
     let (broadcast_tx, _) = broadcast::channel::<ServerMsg>(100);
     let shared_results = Arc::new(RwLock::new(HashMap::new()));
@@ -434,9 +451,21 @@ async fn main() {
         global_custom_count: Arc::new(AtomicUsize::new(0)),
     });
 
+    let base_path = normalize_base_path(&config.base_path);
+    let ws_path = if base_path == "/" {
+        "/ws".to_string()
+    } else {
+        format!("{}/ws", base_path)
+    };
+    let static_path = if base_path == "/" {
+        "/".to_string()
+    } else {
+        format!("{}/", base_path)
+    };
+
     let app = Router::new()
-        .route("/ws", get(ws_handler))
-        .nest_service("/", ServeDir::new("static"))
+        .route(&ws_path, get(ws_handler))
+        .nest_service(&static_path, ServeDir::new("static"))
         .with_state(state);
 
     let addr: SocketAddr = format!("{}:{}", config.listen_host, config.listen_port)
