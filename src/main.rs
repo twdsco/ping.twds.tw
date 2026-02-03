@@ -219,6 +219,7 @@ async fn run_mtr(
             return;
         }
     };
+    println!("Started tracer {} -> {}", source.name, dest_str);
 
     let source_name = source.name.clone();
     let dest_key = dest_str.clone();
@@ -286,7 +287,10 @@ async fn run_custom_mtr(
         };
 
         match tracer.spawn() {
-            Ok((t, _)) => tracers.push((source.name.clone(), t)),
+            Ok((t, _)) => {
+                println!("Started tracer {} -> {}", source.name, dest);
+                tracers.push((source.name.clone(), t));
+            }
             Err(_) => continue,
         }
     }
